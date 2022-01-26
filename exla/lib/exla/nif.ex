@@ -286,4 +286,7 @@ defmodule EXLA.NIF do
 
   def start_log_sink(_sink_pid),
     do: :erlang.nif_error(:undef)
+
+  def computation_to_hlo_text(_computation),
+    do: :erlang.nif_error(:undef)
 end

@@ -22,7 +22,7 @@ defmodule EXLA.Defn do
     comp_fun =
       &to_stream_computation(client, key, input_shape, acc_vars, &1, &2, &3, compile_options)
 
-    {executable, inputs, {output, acc_output}, hooks, output_shapes} =
+    {_, executable, inputs, {output, acc_output}, hooks, output_shapes} =
       compile(client, {:stream, key}, vars, fun, compile_options, split_fun, comp_fun)
 
     # Execution of streams requires the coordination of
@@ -218,13 +218,19 @@ defmodule EXLA.Defn do
   def __jit__(key, vars, fun, options) do
     {run_options, compile_options} = Keyword.pop(options, :run_options, [])
     {client_name, compile_options} = Keyword.pop(compile_options, :client, :host)
+    {only_text, compile_options} = Keyword.pop(compile_options, :only_text?, false)
     client = EXLA.Client.fetch!(client_name)
     callback = &to_root_computation(key, &1, &2, &3, compile_options)
 
-    {executable, inputs, outputs, hooks, :ok} =
+    {computation, executable, inputs, outputs, hooks, :ok} =
       compile(client, key, vars, fun, compile_options, fn _, used -> {[], used} end, callback)
 
-    maybe_outfeed(executable, inputs, outputs, hooks, run_options)
+    if only_text do
+      {:ok, hlo_text} = EXLA.NIF.computation_to_hlo_text(computation.ref)
+      hlo_text
+    else
+      maybe_outfeed(executable, inputs, outputs, hooks, run_options)
+    end
   end
 
   defp to_root_computation(key, expr, used_shapes, used_hooks, options) do
@@ -310,7 +316,7 @@ defmodule EXLA.Defn do
     cache_args = Enum.map(non_buffers, &nx_to_cache_key!/1) ++ cache_args
     cache_key = {key, cache_args, client.name, used_hooks, options}
 
-    {_, {executable, extra, outfeed_hooks}} =
+    {_, {computation, executable, extra, outfeed_hooks}} =
       comp_cache_fun.(cache_key, fn ->
         shapes = Enum.map(inputs, &nx_to_shape!/1)
         inputs_and_shapes = Enum.zip(used_inputs, shapes)
@@ -319,7 +325,7 @@ defmodule EXLA.Defn do
           to_computation.(expr || fun.(vars), inputs_and_shapes, used_hooks)
 
         executable = EXLA.Computation.compile(computation, client, shapes)
-        {nil, {executable, extra, hooks}}
+        {nil, {computation, executable, extra, hooks}}
       end)
 
     # Now finally compute the hooks to give to outfeed
@@ -328,7 +334,7 @@ defmodule EXLA.Defn do
           do: {flag, {shapes, compile_hook(key, hooks, defined_hooks, template)}},
           into: %{}
 
-    {executable, inputs, outputs, hooks, extra}
+    {computation, executable, inputs, outputs, hooks, extra}
   end
 
   defp compile_hook(key, hooks, defined_hooks, template) do

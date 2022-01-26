@@ -285,6 +285,10 @@ defmodule EXLA do
     Nx.Defn.stream(function, args, Keyword.put(options, :compiler, EXLA))
   end
 
+  def export(function, args) do
+    Nx.Defn.jit(function, args, only_text?: true)
+  end
+
   @doc """
   Checks if the JIT compilation of function with
   args is cached.

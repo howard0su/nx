@@ -2175,6 +2175,30 @@ ERL_NIF_TERM compile(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
   return exla::nif::ok(env, exla::nif::make<exla::ExlaExecutable*>(env, executable));
 }
 
+ERL_NIF_TERM computation_to_hlo_text(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
+  if (argc != 1) {
+    return exla::nif::error(env, "Bad argument count.");
+  }
+
+  xla::XlaComputation* computation;
+
+  if (!exla::nif::get<xla::XlaComputation>(env, argv[0], computation)) {
+    return exla::nif::error(env, "Unable to get client.");
+  }
+
+  EXLA_ASSIGN_OR_RETURN_NIF(const xla::HloModuleConfig module_config,
+                      xla::HloModule::CreateModuleConfigFromProto(
+                          (*computation).proto(), xla::GetDebugOptionsFromFlags()), env);
+
+  EXLA_ASSIGN_OR_RETURN_NIF(
+      std::unique_ptr<xla::HloModule> module,
+      xla::HloModule::CreateFromProto((*computation).proto(), module_config), env);
+
+  std::string module_text = module->ToString();
+
+  return exla::nif::ok(env, exla::nif::make(env, module_text));
+}
+
 // ExlaExecutable Functions
 
 ERL_NIF_TERM run(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
@@ -2246,6 +2270,7 @@ static ErlNifFunc exla_funcs[] = {
   {"get_device_count", 1, get_device_count},
   {"get_supported_platforms", 0, get_supported_platforms},
   {"compile", 7, compile},
+  {"computation_to_hlo_text", 1, computation_to_hlo_text},
   // ExlaBuffer
   {"binary_to_device_mem", 4, binary_to_device_mem, ERL_NIF_DIRTY_JOB_IO_BOUND},
   {"read_device_mem", 3, read_device_mem, ERL_NIF_DIRTY_JOB_IO_BOUND},
